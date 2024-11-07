@@ -11,3 +11,8 @@ XPlayer::~XPlayer()
 {
 	delete ui;
 }
+
+Ui::XPlayerClass* XPlayer::GetUI()
+{
+	return ui;
+}

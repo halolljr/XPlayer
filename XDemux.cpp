@@ -24,7 +24,9 @@ XDemux::XDemux()
 
 XDemux::~XDemux()
 {
-	Close();
+	if(!isClose)
+		Close();
+	isClose = false;
 }	
 
 double XDemux::r2d(AVRational r)
@@ -34,7 +36,10 @@ double XDemux::r2d(AVRational r)
 
 bool XDemux::Open(const char* url)
 {
-	/*保证多线程异常*/
+	/*先清理上一次的资源*/
+	Close();
+	/*防止死锁*/
+	/*保证多线程安全*/
 	std::lock_guard<std::mutex> lck(Gmtx_);
 
 	url_ = av_strdup(url);
@@ -68,7 +73,7 @@ bool XDemux::Open(const char* url)
 		AVStream* as = ic_->streams[i];
 		/*音频*/
 		if (as->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
-			videoS = as;
+			audioS = as;
 			audioStreamIndex_ = i;
 			std::cout << "============音频信息============" << std::endl;
 			std::cout << "codec_id : " << as->codecpar->codec_id << std::endl;
@@ -77,12 +82,14 @@ bool XDemux::Open(const char* url)
 			/*std::cout << "channels" << as->codecpar->ch_layout.u.mask << std::endl;*/
 			av_channel_layout_describe(&as->codecpar->ch_layout,channel_human,sizeof(channel_human));
 			std::cout << "channel_layout : " << channel_human << std::endl;
-			std::cout << "frame_size" << as->codecpar->frame_size << std::endl;
+			std::cout << "frame_size : " << as->codecpar->frame_size << std::endl;
 		}
 		/*视频*/
 		else if(as->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-			audioS = as;
+			videoS = as;
 			videoStreamIndex_ = i;
+			width_ = as->codecpar->width;
+			height_ = as->codecpar->height;
 			std::cout << "============视频信息============" << std::endl;
 			std::cout << "codec_id : " << as->codecpar->codec_id << std::endl;
 			std::cout << "format : " << as->codecpar->format << std::endl;
@@ -105,6 +112,7 @@ AVPacket* XDemux::Read()
 	if (!ic_) {
 		return nullptr;
 	}
+	/*每次都开辟空间会不会很耗时？*/
 	AVPacket* pkt = av_packet_alloc();
 	if (!pkt) {
 		av_log(nullptr, AV_LOG_ERROR, "%s : %s\n", __FUNCTION__, "Couldn't Allcated AVPacket");
@@ -159,17 +167,14 @@ AVCodecParameters* XDemux::CopyAPara()
 	return aPara;
 }
 
-bool XDemux::Seek(double pos)
+bool XDemux::Seek(double pos,SEEK_CHOICE choice)
 {
 	std::lock_guard<std::mutex> lck(Gmtx_);
 	if (!ic_) {
 		av_log(nullptr, AV_LOG_ERROR, "%s : %s\n", __FUNCTION__, "AVFormatContext* is NULL");
 		return false;
 	}
-	/*如果这个值没有呢*/
-	if (videoS->duration <= 0) {
-
-	}
+	
 	/*不要调用Clear()---会死锁*/
 	/*清理缓冲，防止粘包*/
 	avformat_flush(ic_);
@@ -178,7 +183,50 @@ bool XDemux::Seek(double pos)
 	if (ret < 0) {
 		return false;
 	}
-
+	//if (choice == SEEK_AVSTREAM_DURATION) {
+	//	// 使用 videoS->duration 来进行跳转
+	//	if (videoS->duration <= 0) {
+	//		/*如果默认方案不行则自动跳转至第二个方案*/
+	//		goto second;
+	//	}
+	//	long long targetPosInMicroseconds = videoS->duration * pos;
+	//	long long seekTimestamp = av_rescale_q(targetPosInMicroseconds, AV_TIME_BASE_Q, videoS->time_base);
+	//	int ret = av_seek_frame(ic_, videoStreamIndex_, seekTimestamp, AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_FRAME);
+	//	if (ret < 0) {
+	//		av_log(nullptr, AV_LOG_ERROR, "%s : %s\n", __FUNCTION__, "Seek failed");
+	//		return false;
+	//	}
+	//}
+	//else if (choice == SEEK_NB_STREAM) {
+	//	second:
+	//	// 使用视频流的帧数来进行跳转
+	//	if (videoS->nb_frames <= 0) {
+	//		/*如果第二个方案不行则自动跳转至第三个方案*/
+	//		goto third;
+	//	}
+	//	int64_t targetFrame = static_cast<int64_t>(videoS->nb_frames * pos);
+	//	int64_t seekTimestamp = av_rescale_q(targetFrame, AVRational{ 1, 1 }, videoS->time_base);
+	//	int ret = av_seek_frame(ic_, videoStreamIndex_, seekTimestamp, AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_FRAME);
+	//	if (ret < 0) {
+	//		av_log(nullptr, AV_LOG_ERROR, "%s : %s\n", __FUNCTION__, "Seek failed");
+	//		return false;
+	//	}
+	//}
+	//else if (choice == SEEK_AVFORMATCONTEXT_TIME_BASE) {
+	//	third:
+	//	// 使用 AVFormatContext 的时间基准来进行换算
+	//	if (ic_->duration <= 0) {
+	//		av_log(nullptr, AV_LOG_ERROR, "%s : %s\n", __FUNCTION__, "Neither stream nor format context has valid duration");
+	//		return false;
+	//	}
+	//	long long targetPosInMicroseconds = ic_->duration * pos;
+	//	long long seekTimestamp = av_rescale_q(targetPosInMicroseconds, AV_TIME_BASE_Q, videoS->time_base);
+	//	int ret = av_seek_frame(ic_, videoStreamIndex_, seekTimestamp, AVSEEK_FLAG_BACKWARD | AVSEEK_FLAG_FRAME);
+	//	if (ret < 0) {
+	//		av_log(nullptr, AV_LOG_ERROR, "%s : %s\n", __FUNCTION__, "Seek failed");
+	//		return false;
+	//	}
+	//}
 	return true;
 }
 
@@ -198,7 +246,6 @@ void XDemux::Close()
 {
 	std::lock_guard<std::mutex> lck(Gmtx_);
 	if (!ic_) {
-		av_log(nullptr, AV_LOG_ERROR, "%s : %s\n", __FUNCTION__, "AVFormatContext* is NULL");
 		return;
 	}
 	if (url_) {
@@ -206,6 +253,7 @@ void XDemux::Close()
 		url_ = nullptr;
 	}
 	if (ic_) {
+		/*不需要再Clear()*/
 		avformat_close_input(&ic_);
 	}
 	if (opts_) {
@@ -216,9 +264,24 @@ void XDemux::Close()
 		avcodec_free_context(&it.second);
 		it.second = nullptr;
 	}
+	videoS = nullptr;
+	audioS = nullptr;
 	videoStreamIndex_ = -1;
 	audioStreamIndex_ = -1;
+	width_ = 0;
+	height_ = 0;
 	totalMs_ = 0;
+	isClose = true;
+}
+
+bool XDemux::IsAudio(AVPacket* pkt)
+{
+	if (!pkt)
+		return false;
+	if (pkt->stream_index == videoStreamIndex_) {
+		return false;
+	}
+	return true;
 }
 
 void XDemux::StringErr(const int& errnum)

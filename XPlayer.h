@@ -15,6 +15,11 @@ public:
 	XPlayer(QWidget *parent = nullptr);
 	~XPlayer();
 
+	/// <summary>
+	/// 返回内部ui界面的指针
+	/// </summary>
+	/// <returns>Ui::XPlayerClass *ui</returns>
+	Ui::XPlayerClass* GetUI();
 private:
 	Ui::XPlayerClass *ui;
 };

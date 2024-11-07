@@ -9,6 +9,12 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 }
+/*Seek时候方案*/
+enum SEEK_CHOICE {
+	SEEK_AVSTREAM_DURATION = 0,
+	SEEK_NB_STREAM = 1,
+	SEEK_AVFORMATCONTEXT_TIME_BASE = 2,
+};
 class XDemux
 {
 public:
@@ -43,11 +49,12 @@ public:
 	virtual AVCodecParameters* CopyAPara();
 
 	/// <summary>
-	/// 移动位置，pos:[0,1],仅仅往后调到关键帧，跳到实际帧得外部操作；并且如果当前视频的AVStream的duration为空还得另外处理
+	/// 视频移动位置，pos:[0,1],仅仅往后调到关键帧，跳到实际帧得外部操作；并且如果当前视频的AVStream的duration为空还得另外处理
 	/// </summary>
-	/// <param name="pos">位置</param>
-	/// <returns></returns>
-	virtual bool Seek(double pos);
+	/// <param name="pos">位置百分比</param>
+	/// <param name="pos">Seek的方案，默认是SEEK_AVSTREAM_DURATION</param>
+	/// <returns>bool</returns>
+	virtual bool Seek(double pos, SEEK_CHOICE choice = SEEK_AVSTREAM_DURATION);
 
 	/// <summary>
 	/// 清空读取缓存
@@ -58,6 +65,13 @@ public:
 	/// 回收清空设置0
 	/// </summary>
 	virtual void Close();
+
+	/// <summary>
+	/// 判断是否是音频流
+	/// </summary>
+	/// <param name="pkt">av_read_frame读取到的AVPacket*</param>
+	/// <returns>是否 bool</returns>
+	bool IsAudio(AVPacket* pkt);
 
 	/// <summary>
 	/// 将FFmpeg返回的错误码转化为错误信息
@@ -84,11 +98,15 @@ private:
 	/*解码器上下文（序号->解码器上下文）*/
 	std::unordered_map<int, AVCodecContext*> codec_map_;
 public:
+	/*解码后的yuv宽高用以openGL绘制*/
+	int width_ = 0;
+	int height_ = 0;
 	/*总时长(毫秒)*/
 	int64_t totalMs_ = 0;
 	/*描述声道*/
 	char channel_human[1024];
 	/*错误err*/
 	char err_[1024] = { 0 };
+	bool isClose = false;
 };
 

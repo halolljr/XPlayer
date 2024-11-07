@@ -35,9 +35,15 @@
     <ClCompile Include="XDecode.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="XVideoWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="XPlayer.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="XVideoWidget.h">
       <Filter>Header Files</Filter>
     </QtMoc>
   </ItemGroup>
